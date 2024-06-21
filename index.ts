@@ -11,7 +11,15 @@
 // For more info see docs.battlesnake.com
 
 import runServer from './server';
+import { SnakeAgent } from './snakeAgent';
+import { Moves } from './utils';
 import { GameState, InfoResponse, MoveResponse } from './types';
+
+const snakeAgent = new SnakeAgent();
+
+
+
+let prevMove: Moves | null = null;
 
 // info is called when you create your Battlesnake on play.battlesnake.com
 // and controls your Battlesnake's appearance
@@ -35,6 +43,9 @@ function start(gameState: GameState): void {
 
 // end is called when your Battlesnake finishes a game
 function end(gameState: GameState): void {
+  if (prevMove) {
+    snakeAgent.train(prevMove, gameState);
+  }
   console.log("GAME OVER\n");
 }
 
@@ -42,8 +53,11 @@ function end(gameState: GameState): void {
 // Valid moves are "up", "down", "left", or "right"
 // See https://docs.battlesnake.com/api/example-move for available data
 function move(gameState: GameState): MoveResponse {
+  if (prevMove) {
+    snakeAgent.train(prevMove, gameState);
+  }
 
-  let isMoveSafe: { [key: string]: boolean; } = {
+  let isMoveValid: Record<Moves, boolean> = {
     up: true,
     down: true,
     left: true,
@@ -55,42 +69,32 @@ function move(gameState: GameState): MoveResponse {
   const myNeck = gameState.you.body[1];
 
   if (myNeck.x < myHead.x) {        // Neck is left of head, don't move left
-    isMoveSafe.left = false;
+    isMoveValid.left = false;
 
   } else if (myNeck.x > myHead.x) { // Neck is right of head, don't move right
-    isMoveSafe.right = false;
+    isMoveValid.right = false;
 
   } else if (myNeck.y < myHead.y) { // Neck is below head, don't move down
-    isMoveSafe.down = false;
+    isMoveValid.down = false;
 
   } else if (myNeck.y > myHead.y) { // Neck is above head, don't move up
-    isMoveSafe.up = false;
+    isMoveValid.up = false;
   }
 
   // TODO: Step 1 - Prevent your Battlesnake from moving out of bounds
   // boardWidth = gameState.board.width;
   // boardHeight = gameState.board.height;
 
-  // TODO: Step 2 - Prevent your Battlesnake from colliding with itself
-  // myBody = gameState.you.body;
+  let nextMove: Moves = snakeAgent.play(gameState);
 
-  // TODO: Step 3 - Prevent your Battlesnake from colliding with other Battlesnakes
-  // opponents = gameState.board.snakes;
+  if (!isMoveValid[nextMove]) {
+    const safeMoves: Moves[] = (Object.keys(isMoveValid) as Moves[]).filter(move => isMoveValid[move]);
+    const randomMove: Moves = safeMoves[Math.floor(Math.random() * safeMoves.length)] || Moves.up;
+    console.warn(`${gameState.turn}: Not valid move '${nextMove}. Picking '${randomMove}'`);
 
-  // Are there any safe moves left?
-  const safeMoves = Object.keys(isMoveSafe).filter(key => isMoveSafe[key]);
-  if (safeMoves.length == 0) {
-    console.log(`MOVE ${gameState.turn}: No safe moves detected! Moving down`);
-    return { move: "down" };
+    nextMove = randomMove;
   }
 
-  // Choose a random move from the safe moves
-  const nextMove = safeMoves[Math.floor(Math.random() * safeMoves.length)];
-
-  // TODO: Step 4 - Move towards food instead of random, to regain health and survive longer
-  // food = gameState.board.food;
-
-  console.log(`MOVE ${gameState.turn}: ${nextMove}`)
   return { move: nextMove };
 }
 

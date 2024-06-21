@@ -14,6 +14,12 @@ This project uses [TypeScript](https://www.typescriptlang.org/), [Node.js](https
 
 ## Run Your Battlesnake
 
+```sh
+cd ~/go/bin
+
+while true; do ./battlesnake play -W 11 -H 11 --name Roger123 --url http://0.0.0.0:8000 -g solo -v; echo "OK"; done
+```
+
 Install dependencies using npm
 
 ```sh
