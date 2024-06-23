@@ -19,7 +19,6 @@ const snakeAgent = new SnakeAgent();
 
 
 
-let prevMove: Moves | null = null;
 
 // info is called when you create your Battlesnake on play.battlesnake.com
 // and controls your Battlesnake's appearance
@@ -43,8 +42,8 @@ function start(gameState: GameState): void {
 
 // end is called when your Battlesnake finishes a game
 function end(gameState: GameState): void {
-  if (prevMove) {
-    snakeAgent.train(prevMove, gameState);
+  if (gameState.turn) {
+    snakeAgent.train(gameState);
   }
   console.log("GAME OVER\n");
 }
@@ -52,9 +51,9 @@ function end(gameState: GameState): void {
 // move is called on every turn and returns your next move
 // Valid moves are "up", "down", "left", or "right"
 // See https://docs.battlesnake.com/api/example-move for available data
-function move(gameState: GameState): MoveResponse {
-  if (prevMove) {
-    snakeAgent.train(prevMove, gameState);
+async function move(gameState: GameState): Promise<MoveResponse> {
+  if (gameState.turn) {
+    await snakeAgent.train(gameState);
   }
 
   let isMoveValid: Record<Moves, boolean> = {
@@ -85,7 +84,7 @@ function move(gameState: GameState): MoveResponse {
   // boardWidth = gameState.board.width;
   // boardHeight = gameState.board.height;
 
-  let nextMove: Moves = snakeAgent.play(gameState);
+  let nextMove: Moves = await snakeAgent.play(gameState);
 
   if (!isMoveValid[nextMove]) {
     const safeMoves: Moves[] = (Object.keys(isMoveValid) as Moves[]).filter(move => isMoveValid[move]);

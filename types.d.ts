@@ -29,11 +29,13 @@ export interface Board {
   width: number;
   food: Coord[];
   hazards: Coord[];
+  /** Includes my battlesnake */
   snakes: Battlesnake[];
 }
 
 export interface GameState {
   game: Game;
+  /** 0-based */
   turn: number;
   board: Board;
   you: Battlesnake;

@@ -1,35 +1,36 @@
 import express, { Request, Response, NextFunction } from "express"
+import { GameState, InfoResponse, MoveResponse } from './types';
 
 export interface BattlesnakeHandlers {
-  info: Function;
-  start: Function;
-  move: Function;
-  end: Function;
+  info: () => Promise<InfoResponse> | InfoResponse;
+  start: (gameState: GameState) => Promise<void> | void;
+  move: (gameState: GameState) => Promise<MoveResponse>;
+  end: (gameState: GameState) => Promise<void> | void;
 }
 
 export default function runServer(handlers: BattlesnakeHandlers) {
   const app = express();
   app.use(express.json());
 
-  app.get("/", (req: Request, res: Response) => {
-    res.send(handlers.info());
+  app.get("/", async (req: Request, res: Response) => {
+    res.send(await handlers.info());
   });
 
-  app.post("/start", (req: Request, res: Response) => {
-    handlers.start(req.body);
+  app.post("/start", async (req: Request, res: Response) => {
+    await handlers.start(req.body);
     res.send("ok");
   });
 
-  app.post("/move", (req: Request, res: Response) => {
-    res.send(handlers.move(req.body));
+  app.post("/move", async (req: Request, res: Response) => {
+    res.send(await handlers.move(req.body));
   });
 
-  app.post("/end", (req: Request, res: Response) => {
-    handlers.end(req.body);
+  app.post("/end", async (req: Request, res: Response) => {
+    await handlers.end(req.body);
     res.send("ok");
   });
 
-  app.use(function(req: Request, res: Response, next: NextFunction) {
+  app.use(function (req: Request, res: Response, next: NextFunction) {
     res.set("Server", "battlesnake/github/starter-snake-typescript");
     next();
   });
