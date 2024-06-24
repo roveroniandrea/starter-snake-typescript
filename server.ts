@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from "express"
 import { GameState, InfoResponse, MoveResponse } from './types';
+import { getIsTrainingInProgress } from './shared';
 
 export interface BattlesnakeHandlers {
   info: () => Promise<InfoResponse> | InfoResponse;
@@ -13,6 +14,10 @@ export default function runServer(handlers: BattlesnakeHandlers) {
   app.use(express.json());
 
   app.get("/", async (req: Request, res: Response) => {
+    if (getIsTrainingInProgress()) {
+      res.sendStatus(403);
+      return;
+    }
     res.send(await handlers.info());
   });
 

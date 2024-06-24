@@ -39,7 +39,9 @@ export class SnakeAgent {
         return model;
     }
 
-    public async train(turnData: TurnData, nextTurnData: TurnData): Promise<void> {
+    public async train(turnData: TurnData, nextTurnData: TurnData): Promise<{
+        reward: number;
+    }> {
         const {
             targetQValues: prevTargetQValues,
             stateTensor: prevStateTensor,
@@ -68,6 +70,10 @@ export class SnakeAgent {
         // 5. Eseguiamo un passo di addestramento per il modello
         const targetTensor = tf.tensor([targetQValues]);
         await this.model.fit(prevStateTensor, targetTensor, { epochs: 1 });
+
+        return {
+            reward: reward
+        }
     }
 
     // TODO: Missing the final turn. Also, the turn before seems never received
@@ -75,21 +81,35 @@ export class SnakeAgent {
     // INFO 17:24:32.855131 Turn: 114, Snakes Alive: [Roger123], Food: 12, Hazards: 0
     // INFO 17:24:32.858153 Turn: 115, Snakes Alive: [], Food: 12, Hazards: 0
     // INFO 17:24:33.635361 Game completed after 116 turns.
-    public async trainAll(): Promise<void> {
+    public async trainAll(endingState: GameState): Promise<{
+        reward: number;
+    }> {
+        await this.play(endingState);
+
         let i = 0;
+        let reward: number = 0;
         while (this.prevGameDatas.has(i) && this.prevGameDatas.has(i + 1)) {
             const currentTurn = this.prevGameDatas.get(i) as TurnData;
             const nextTurn = this.prevGameDatas.get(i + 1) as TurnData;
 
-            await this.train(currentTurn, nextTurn);
+            const trainResult = await this.train(currentTurn, nextTurn);
+
+            reward += trainResult.reward;
 
             i++;
         }
 
         this.prevGameDatas.clear();
+
+        return {
+            reward: reward
+        }
     }
 
-    public async play(gameState: GameState): Promise<Moves> {
+    public async play(gameState: GameState): Promise<{
+        move: Moves;
+        wasValid: boolean;
+    }> {
         if (this.prevGameDatas.has(gameState.turn)) {
             throw new Error("Turn already played");
         }
@@ -140,13 +160,13 @@ export class SnakeAgent {
         }
 
         const isMoveValid = validMoves[move];
-        if (!isMoveValid) {
-            const safeMoves: Moves[] = (Object.keys(validMoves) as Moves[]).filter(move => validMoves[move]);
-            const randomMove: Moves = safeMoves[Math.floor(Math.random() * safeMoves.length)] || Moves.up;
-            console.warn(`${gameState.turn}: Not valid move '${move}'. Picking '${randomMove}'`);
+        // if (!isMoveValid) {
+        //     const safeMoves: Moves[] = (Object.keys(validMoves) as Moves[]).filter(move => validMoves[move]);
+        //     const randomMove: Moves = safeMoves[Math.floor(Math.random() * safeMoves.length)] || Moves.up;
+        //     // console.warn(`${gameState.turn}: Not valid move '${move}'. Picking '${randomMove}'`);
 
-            move = randomMove;
-        }
+        //     move = randomMove;
+        // }
 
         this.prevGameDatas.set(gameState.turn, {
             targetQValues: [...qValues],
@@ -157,7 +177,10 @@ export class SnakeAgent {
             turn: gameState.turn
         });
 
-        return move;
+        return {
+            move: move,
+            wasValid: isMoveValid
+        };
     }
 
     private mapStateToInput(state: GameState): tf.Tensor {
@@ -176,13 +199,31 @@ export class SnakeAgent {
             boardInput[getInputIndex(hazard)] = -1;
         }
 
+        let myselfFound = false;
         for (const snake of state.board.snakes) {
             const isMyself: boolean = snake.id === state.you.id;
+            if (isMyself) {
+                myselfFound = true;
+            }
+
             for (const body of snake.body) {
                 boardInput[getInputIndex(body)] = isMyself ? 2 : -2;
             }
 
             boardInput[getInputIndex(snake.head)] = isMyself ? 3 : -3;
+        }
+
+        if (!myselfFound) {
+            const isMyself: boolean = state.you.id === state.you.id;
+            if (isMyself) {
+                myselfFound = true;
+            }
+
+            for (const body of state.you.body) {
+                boardInput[getInputIndex(body)] = isMyself ? 2 : -2;
+            }
+
+            boardInput[getInputIndex(state.you.head)] = isMyself ? 3 : -3;
         }
 
         let stringified: string = "";

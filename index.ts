@@ -11,8 +11,8 @@
 // For more info see docs.battlesnake.com
 
 import runServer from './server';
+import { setIsTrainingInProgress } from './shared';
 import { SnakeAgent } from './snakeAgent';
-import { Moves } from './utils';
 import { GameState, InfoResponse, MoveResponse } from './types';
 
 const snakeAgent = new SnakeAgent();
@@ -21,10 +21,12 @@ let timeStats: {
   gameIndex: number;
   trainingTimeMs: number;
   playingTimeMs: number;
+  validMoves: number;
 } = {
   gameIndex: 0,
   trainingTimeMs: 0,
-  playingTimeMs: 0
+  playingTimeMs: 0,
+  validMoves: 0
 }
 
 
@@ -50,8 +52,9 @@ function start(gameState: GameState): void {
 
 // end is called when your Battlesnake finishes a game
 async function end(gameState: GameState): Promise<void> {
+  setIsTrainingInProgress(true);
   const now = new Date().getTime();
-  await snakeAgent.trainAll();
+  const trainResult = await snakeAgent.trainAll(gameState);
   const finalTrainingTime = new Date().getTime() - now;
 
   console.log(`
@@ -60,13 +63,17 @@ async function end(gameState: GameState): Promise<void> {
     Avg training time during game: ${timeStats.trainingTimeMs / gameState.turn}ms
     Avg playing time: ${timeStats.playingTimeMs / gameState.turn}ms
     Final training time: ${finalTrainingTime}ms
+    Total valid moves: ${timeStats.validMoves} / ${gameState.turn - 1} (${((timeStats.validMoves * 100) / (gameState.turn - 1)).toFixed(2)})%
+    Train reward: ${trainResult.reward}
     `);
 
   timeStats = {
-    gameIndex: timeStats.gameIndex++,
+    gameIndex: timeStats.gameIndex + 1,
     trainingTimeMs: 0,
-    playingTimeMs: 0
+    playingTimeMs: 0,
+    validMoves: 0
   };
+  setIsTrainingInProgress(false);
 }
 
 // move is called on every turn and returns your next move
@@ -81,10 +88,17 @@ async function move(gameState: GameState): Promise<MoveResponse> {
   // }
 
   const now = new Date().getTime();
-  const nextMove: Moves = await snakeAgent.play(gameState);
+  const {
+    move,
+    wasValid
+  } = await snakeAgent.play(gameState);
   timeStats.playingTimeMs += (new Date().getTime()) - now;
 
-  return { move: nextMove };
+  if (wasValid) {
+    timeStats.validMoves++;
+  }
+
+  return { move: move };
 }
 
 runServer({
