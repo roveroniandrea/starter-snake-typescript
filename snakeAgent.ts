@@ -1,6 +1,6 @@
-import { GameState } from './types';
-import { Moves } from './utils';
 import * as tf from '@tensorflow/tfjs';
+import { Coord, GameState } from './types';
+import { Moves } from './utils';
 
 export class SnakeAgent {
 
@@ -17,6 +17,7 @@ export class SnakeAgent {
     private prevTargetQValues: number[] | null = null;
     private prevStateTensor: tf.Tensor | null = null;
     private prevMove: Moves | null = null;
+    private readonly inputShape: number = 11 * 11;
 
     constructor() {
         this.model = this.createModel();
@@ -26,7 +27,7 @@ export class SnakeAgent {
 
     createModel(): tf.Sequential {
         const model = tf.sequential();
-        model.add(tf.layers.dense({ units: 24, inputShape: [4], activation: 'relu' }));
+        model.add(tf.layers.dense({ units: 24, inputShape: [this.inputShape], activation: 'relu' }));
         model.add(tf.layers.dense({ units: 24, activation: 'relu' }));
         // Output layer
         model.add(tf.layers.dense({ units: 4, activation: 'linear' }));
@@ -94,8 +95,40 @@ export class SnakeAgent {
     }
 
     private mapStateToInput(state: GameState): tf.Tensor {
-        // TODO:
+        const boardInput: number[] = new Array(state.board.width * state.board.height).fill(0);
+
+        function getInputIndex(coord: Coord): number {
+            return (state.board.height - coord.y - 1) * state.board.width + coord.x;
+        }
+
+        for (const food of state.board.food) {
+            boardInput[getInputIndex(food)] = 1;
+        }
+
+        for (const hazard of state.board.hazards) {
+            boardInput[getInputIndex(hazard)] = -1;
+        }
+
+        for (const snake of state.board.snakes) {
+            const isMyself: boolean = snake.id === state.you.id;
+            for (const body of snake.body) {
+                boardInput[getInputIndex(body)] = isMyself ? 2 : -2;
+            }
+
+            boardInput[getInputIndex(snake.head)] = isMyself ? 3 : -3;
+        }
+
+        let stringified: string = "";
+        for (let i = 0; i < boardInput.length; i++) {
+            if ((i % state.board.width) === 0) {
+                stringified += '\n';
+            }
+
+            stringified += `${boardInput[i]}`;
+        }
+
         // Reshape allows to set the correct dimension to the tensor
-        return tf.tensor([1, 0, 0, 0]).reshape([-1, 4]);
+        const inputTensor = tf.tensor(boardInput).reshape([-1, this.inputShape]);
+        return inputTensor;
     }
 }

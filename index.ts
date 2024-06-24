@@ -37,7 +37,7 @@ function info(): InfoResponse {
 
 // start is called when your Battlesnake begins a game
 function start(gameState: GameState): void {
-  console.log("GAME START");
+  // console.log("GAME START");
 }
 
 // end is called when your Battlesnake finishes a game
@@ -89,7 +89,7 @@ async function move(gameState: GameState): Promise<MoveResponse> {
   if (!isMoveValid[nextMove]) {
     const safeMoves: Moves[] = (Object.keys(isMoveValid) as Moves[]).filter(move => isMoveValid[move]);
     const randomMove: Moves = safeMoves[Math.floor(Math.random() * safeMoves.length)] || Moves.up;
-    console.warn(`${gameState.turn}: Not valid move '${nextMove}. Picking '${randomMove}'`);
+    console.warn(`${gameState.turn}: Not valid move '${nextMove}'. Picking '${randomMove}'`);
 
     nextMove = randomMove;
   }
