@@ -2,27 +2,31 @@ import * as tf from '@tensorflow/tfjs';
 import { Coord, GameState } from './types';
 import { Moves } from './utils';
 
+type TurnData = {
+    targetQValues: number[];
+    stateTensor: tf.Tensor;
+    move: Moves;
+    isMoveValid: boolean;
+    health: number;
+    turn: number;
+};
+
 export class SnakeAgent {
 
     private readonly model: tf.Sequential;
-    private readonly learningRate: number;
-    private readonly discountFactor: number;
+    private readonly discountFactor: number = 0.9;
     private readonly movesByIndex: Moves[] = [
         Moves.up,
         Moves.down,
         Moves.left,
         Moves.right,
     ];
-
-    private prevTargetQValues: number[] | null = null;
-    private prevStateTensor: tf.Tensor | null = null;
-    private prevMove: Moves | null = null;
     private readonly inputShape: number = 11 * 11;
+
+    private prevGameDatas: Map<number, TurnData> = new Map();
 
     constructor() {
         this.model = this.createModel();
-        this.learningRate = 0.1;
-        this.discountFactor = 0.9;
     }
 
     createModel(): tf.Sequential {
@@ -35,19 +39,20 @@ export class SnakeAgent {
         return model;
     }
 
+    public async train(turnData: TurnData, nextTurnData: TurnData): Promise<void> {
+        const {
+            targetQValues: prevTargetQValues,
+            stateTensor: prevStateTensor,
+            move: prevMove,
+            isMoveValid,
+            health
+        } = turnData;
 
-    public async train(newState: GameState): Promise<void> {
-        if (!this.prevTargetQValues || !this.prevStateTensor || !this.prevMove) {
-            throw new Error("Missing previous state");
-        }
+        const reward: number = !isMoveValid ? -1 :
+            (nextTurnData.health > health) ? 1 : 0.5;
 
-        // TODO: Per evitare race conditions, per ora è sincrono (circa, andrà fatto un qualche semaforo)
-        // TODO: Calc reward
-        const reward: number = 0;
         // 1. Prevediamo i valori Q per lo stato successivo
-        const nextStateTensor = this.mapStateToInput(newState);
-        const nextQValues = this.model.predict(nextStateTensor);
-        const maxNextQValue = Math.max(...(nextQValues as tf.Tensor).dataSync());
+        const maxNextQValue = Math.max(...nextTurnData.targetQValues);
 
         // 2. Calcoliamo il target Q-value per l'azione presa
         const target = reward + this.discountFactor * maxNextQValue;
@@ -55,29 +60,38 @@ export class SnakeAgent {
         // 3. Prevediamo i valori Q per lo stato attuale (riutilizzato da calcolo precedente)
 
         // 4. Sostituiamo il valore Q corrispondente all'azione presa con il target calcolato
-        const action: number = parseInt(Object.keys(this.movesByIndex).find(i => this.movesByIndex[parseInt(i)] === this.prevMove) || '');
+        const action: number = parseInt(Object.keys(this.movesByIndex).find(i => this.movesByIndex[parseInt(i)] === prevMove) || '');
 
-        const targetQValues: number[] = this.prevTargetQValues.slice();
+        const targetQValues: number[] = prevTargetQValues.slice();
         targetQValues[action] = target;
 
         // 5. Eseguiamo un passo di addestramento per il modello
         const targetTensor = tf.tensor([targetQValues]);
-        await this.model.fit(this.prevStateTensor, targetTensor, { epochs: 1 });
+        await this.model.fit(prevStateTensor, targetTensor, { epochs: 1 });
+    }
 
-        // 6. Pulizia delle variabili tensor
-        nextStateTensor.dispose();
-        this.prevStateTensor.dispose();
-        targetTensor.dispose();
+    // TODO: Missing the final turn. Also, the turn before seems never received
+    // This is because of this log here:
+    // INFO 17:24:32.855131 Turn: 114, Snakes Alive: [Roger123], Food: 12, Hazards: 0
+    // INFO 17:24:32.858153 Turn: 115, Snakes Alive: [], Food: 12, Hazards: 0
+    // INFO 17:24:33.635361 Game completed after 116 turns.
+    public async trainAll(): Promise<void> {
+        let i = 0;
+        while (this.prevGameDatas.has(i) && this.prevGameDatas.has(i + 1)) {
+            const currentTurn = this.prevGameDatas.get(i) as TurnData;
+            const nextTurn = this.prevGameDatas.get(i + 1) as TurnData;
 
-        this.prevTargetQValues = null;
-        this.prevStateTensor = null;
-        this.prevMove = null;
+            await this.train(currentTurn, nextTurn);
 
+            i++;
+        }
+
+        this.prevGameDatas.clear();
     }
 
     public async play(gameState: GameState): Promise<Moves> {
-        if (this.prevTargetQValues || this.prevStateTensor || this.prevMove) {
-            throw new Error("Not trained on previous state");
+        if (this.prevGameDatas.has(gameState.turn)) {
+            throw new Error("Turn already played");
         }
 
         const newStateTensor: tf.Tensor = this.mapStateToInput(gameState);
@@ -85,11 +99,63 @@ export class SnakeAgent {
         const qValues = await (this.model.predict(newStateTensor) as tf.Tensor<tf.Rank>).data();
         const moveIndex: number = qValues.indexOf(Math.max(...qValues));
 
-        const move: Moves = this.movesByIndex[moveIndex];
+        let move: Moves = this.movesByIndex[moveIndex];
 
-        this.prevStateTensor = newStateTensor;
-        this.prevTargetQValues = [...qValues];
-        this.prevMove = move;
+        const validMoves: Record<Moves, boolean> = {
+            up: true,
+            down: true,
+            left: true,
+            right: true
+        };
+
+        // We've included code to prevent your Battlesnake from moving backwards
+        const myNeck = gameState.you.body[1];
+
+        if (myNeck.x < gameState.you.head.x) {        // Neck is left of head, don't move left
+            validMoves.left = false;
+
+        } else if (myNeck.x > gameState.you.head.x) { // Neck is right of head, don't move right
+            validMoves.right = false;
+
+        } else if (myNeck.y < gameState.you.head.y) { // Neck is below head, don't move down
+            validMoves.down = false;
+
+        } else if (myNeck.y > gameState.you.head.y) { // Neck is above head, don't move up
+            validMoves.up = false;
+        }
+
+        // Prevent your Battlesnake from moving out of bounds
+        if (gameState.you.head.x === 0) {
+            validMoves.left = false;
+        }
+        if (gameState.you.head.x === gameState.board.width - 1) {
+            validMoves.right = false;
+        }
+        // Note: y coord starts from the bottom
+        if (gameState.you.head.y === 0) {
+            validMoves.down = false;
+        }
+        if (gameState.you.head.y === gameState.board.height - 1) {
+            validMoves.up = false;
+        }
+
+        const isMoveValid = validMoves[move];
+        if (!isMoveValid) {
+            const safeMoves: Moves[] = (Object.keys(validMoves) as Moves[]).filter(move => validMoves[move]);
+            const randomMove: Moves = safeMoves[Math.floor(Math.random() * safeMoves.length)] || Moves.up;
+            console.warn(`${gameState.turn}: Not valid move '${move}'. Picking '${randomMove}'`);
+
+            move = randomMove;
+        }
+
+        this.prevGameDatas.set(gameState.turn, {
+            targetQValues: [...qValues],
+            stateTensor: newStateTensor,
+            move: move,
+            isMoveValid: isMoveValid,
+            health: gameState.you.health,
+            turn: gameState.turn
+        });
 
         return move;
     }
@@ -98,6 +164,7 @@ export class SnakeAgent {
         const boardInput: number[] = new Array(state.board.width * state.board.height).fill(0);
 
         function getInputIndex(coord: Coord): number {
+            // Note: y coord starts from the bottom
             return (state.board.height - coord.y - 1) * state.board.width + coord.x;
         }
 

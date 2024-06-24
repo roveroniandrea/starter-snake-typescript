@@ -17,7 +17,15 @@ import { GameState, InfoResponse, MoveResponse } from './types';
 
 const snakeAgent = new SnakeAgent();
 
-
+let timeStats: {
+  gameIndex: number;
+  trainingTimeMs: number;
+  playingTimeMs: number;
+} = {
+  gameIndex: 0,
+  trainingTimeMs: 0,
+  playingTimeMs: 0
+}
 
 
 // info is called when you create your Battlesnake on play.battlesnake.com
@@ -41,58 +49,40 @@ function start(gameState: GameState): void {
 }
 
 // end is called when your Battlesnake finishes a game
-function end(gameState: GameState): void {
-  if (gameState.turn) {
-    snakeAgent.train(gameState);
-  }
-  console.log("GAME OVER\n");
+async function end(gameState: GameState): Promise<void> {
+  const now = new Date().getTime();
+  await snakeAgent.trainAll();
+  const finalTrainingTime = new Date().getTime() - now;
+
+  console.log(`
+    GAME #${timeStats.gameIndex} ENDED:
+    Turns ${gameState.turn}
+    Avg training time during game: ${timeStats.trainingTimeMs / gameState.turn}ms
+    Avg playing time: ${timeStats.playingTimeMs / gameState.turn}ms
+    Final training time: ${finalTrainingTime}ms
+    `);
+
+  timeStats = {
+    gameIndex: timeStats.gameIndex++,
+    trainingTimeMs: 0,
+    playingTimeMs: 0
+  };
 }
 
 // move is called on every turn and returns your next move
 // Valid moves are "up", "down", "left", or "right"
 // See https://docs.battlesnake.com/api/example-move for available data
 async function move(gameState: GameState): Promise<MoveResponse> {
-  if (gameState.turn) {
-    await snakeAgent.train(gameState);
-  }
+  // if (gameState.turn && false) {
+  //   const now = new Date().getTime();
+  //   await snakeAgent.train(gameState);
 
-  let isMoveValid: Record<Moves, boolean> = {
-    up: true,
-    down: true,
-    left: true,
-    right: true
-  };
+  //   timeStats.trainingTimeMs += (new Date().getTime()) - now;
+  // }
 
-  // We've included code to prevent your Battlesnake from moving backwards
-  const myHead = gameState.you.body[0];
-  const myNeck = gameState.you.body[1];
-
-  if (myNeck.x < myHead.x) {        // Neck is left of head, don't move left
-    isMoveValid.left = false;
-
-  } else if (myNeck.x > myHead.x) { // Neck is right of head, don't move right
-    isMoveValid.right = false;
-
-  } else if (myNeck.y < myHead.y) { // Neck is below head, don't move down
-    isMoveValid.down = false;
-
-  } else if (myNeck.y > myHead.y) { // Neck is above head, don't move up
-    isMoveValid.up = false;
-  }
-
-  // TODO: Step 1 - Prevent your Battlesnake from moving out of bounds
-  // boardWidth = gameState.board.width;
-  // boardHeight = gameState.board.height;
-
-  let nextMove: Moves = await snakeAgent.play(gameState);
-
-  if (!isMoveValid[nextMove]) {
-    const safeMoves: Moves[] = (Object.keys(isMoveValid) as Moves[]).filter(move => isMoveValid[move]);
-    const randomMove: Moves = safeMoves[Math.floor(Math.random() * safeMoves.length)] || Moves.up;
-    console.warn(`${gameState.turn}: Not valid move '${nextMove}'. Picking '${randomMove}'`);
-
-    nextMove = randomMove;
-  }
+  const now = new Date().getTime();
+  const nextMove: Moves = await snakeAgent.play(gameState);
+  timeStats.playingTimeMs += (new Date().getTime()) - now;
 
   return { move: nextMove };
 }
