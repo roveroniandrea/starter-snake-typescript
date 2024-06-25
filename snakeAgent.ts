@@ -4,7 +4,9 @@ import { Moves } from './utils';
 
 type TurnData = {
     targetQValues: number[];
+    /** Rotated board passed as input */
     stateTensor: tf.Tensor;
+    /** Unrotated move (ie the one outputted by the model) */
     move: Moves;
     isMoveValid: boolean;
     health: number;
@@ -118,13 +120,6 @@ export class SnakeAgent {
             throw new Error("Turn already played");
         }
 
-        const newStateTensor: tf.Tensor = this.mapStateToInput(gameState);
-
-        const qValues = await (this.model.predict(newStateTensor) as tf.Tensor<tf.Rank>).data();
-        const moveIndex: number = qValues.indexOf(Math.max(...qValues));
-
-        let move: Moves = this.movesByIndex[moveIndex];
-
         const validMoves: Record<Moves, boolean> = {
             up: true,
             down: true,
@@ -135,17 +130,23 @@ export class SnakeAgent {
         // We've included code to prevent your Battlesnake from moving backwards
         const myNeck = gameState.you.body[1];
 
+        let heading: Moves | null = Moves.up;
+
         if (myNeck.x < gameState.you.head.x) {        // Neck is left of head, don't move left
             validMoves.left = false;
+            heading = Moves.right;
 
         } else if (myNeck.x > gameState.you.head.x) { // Neck is right of head, don't move right
             validMoves.right = false;
+            heading = Moves.left;
 
         } else if (myNeck.y < gameState.you.head.y) { // Neck is below head, don't move down
             validMoves.down = false;
+            heading = Moves.up;
 
         } else if (myNeck.y > gameState.you.head.y) { // Neck is above head, don't move up
             validMoves.up = false;
+            heading = Moves.down;
         }
 
         // Prevent your Battlesnake from moving out of bounds
@@ -163,31 +164,37 @@ export class SnakeAgent {
             validMoves.up = false;
         }
 
-        const isMoveValid = validMoves[move];
-        // if (!isMoveValid) {
-        //     const safeMoves: Moves[] = (Object.keys(validMoves) as Moves[]).filter(move => validMoves[move]);
-        //     const randomMove: Moves = safeMoves[Math.floor(Math.random() * safeMoves.length)] || Moves.up;
-        //     // console.warn(`${gameState.turn}: Not valid move '${move}'. Picking '${randomMove}'`);
+        const newStateTensor: tf.Tensor = this.mapStateToInput(gameState, heading);
 
-        //     move = randomMove;
-        // }
+        const qValues = await (this.model.predict(newStateTensor) as tf.Tensor<tf.Rank>).data();
+        const moveIndex: number = qValues.indexOf(Math.max(...qValues));
+
+        const chosenMove: Moves = this.movesByIndex[moveIndex];
+
+        // The move needs to be rotated, but only when returned by this method.
+        // Internally, we need to keep the original move
+        const rotatedMove = this.rotateMove(chosenMove, heading);
+        // To check if the move is valid, use the rotated one
+        const isMoveValid = validMoves[rotatedMove];
 
         this.prevGameDatas.set(gameState.turn, {
             targetQValues: [...qValues],
             stateTensor: newStateTensor,
-            move: move,
+            // Keep the unrotated move
+            move: chosenMove,
             isMoveValid: isMoveValid,
             health: gameState.you.health,
             turn: gameState.turn
         });
 
+
         return {
-            move: move,
+            move: rotatedMove,
             wasValid: isMoveValid
         };
     }
 
-    private mapStateToInput(state: GameState): tf.Tensor {
+    private mapStateToInput(state: GameState, heading: Moves): tf.Tensor {
         const boardInput: number[] = new Array(state.board.width * state.board.height).fill(0);
 
         function clampInBoard(coord: Coord): Coord {
@@ -237,8 +244,71 @@ export class SnakeAgent {
             boardInput[getInputIndex(state.you.head)] = isMyself ? 3 : -3;
         }
 
+        const rotatedBoard: tf.Tensor = this.rotateBoardInput(boardInput, heading, state.board.width, state.board.height);
+
         // Reshape allows to set the correct dimension to the tensor
-        const inputTensor = tf.tensor(boardInput).reshape([-1, this.inputShape]);
+        const inputTensor = rotatedBoard.reshape([-1, this.inputShape]);
         return inputTensor;
+    }
+
+    private rotateBoardInput(boardInput: number[], heading: Moves, width: number, height: number): tf.Tensor {
+        const tensor = tf.tensor2d(boardInput, [width, height]); // TODO: Need to verify for non-squared boards
+
+        if (heading === Moves.up) {
+            return tensor;
+        }
+
+        if (heading === Moves.right) {
+            // Per ruotare una matrice di 90 gradi a destra (in senso orario),
+            // puoi trasporre la matrice e poi invertire l'ordine delle righe
+            const transposed = tensor.transpose();
+            const rotated = transposed.reverse(0);
+            return rotated;
+        }
+
+        if (heading === Moves.down) {
+            // Per ruotare una matrice di 180 gradi, puoi invertire sia l'ordine delle righe che delle colonne
+            const rotated = tensor.reverse(0).reverse(1);
+            return rotated;
+        }
+
+        if (heading === Moves.left) {
+            // Per ruotare una matrice di 270 gradi a destra (in senso orario),
+            // puoi trasporre la matrice e poi invertire l'ordine delle colonne
+            const transposed = tensor.transpose();
+            const rotated = transposed.reverse(0);
+            return rotated;
+        }
+
+        throw new Error(`Invalid heading ${heading}`);
+    }
+
+    private rotateMove(move: Moves, heading: Moves): Moves {
+        if (heading === Moves.up) {
+            return move;
+        }
+
+        if (heading === Moves.right) {
+            return move === Moves.up ? Moves.right :
+                move === Moves.right ? Moves.down :
+                    move === Moves.down ? Moves.left :
+                        Moves.up
+        }
+
+        if (heading === Moves.down) {
+            return move === Moves.up ? Moves.down :
+                move === Moves.right ? Moves.left :
+                    move === Moves.down ? Moves.up :
+                        Moves.right
+        }
+
+        if (heading === Moves.left) {
+            return move === Moves.up ? Moves.left :
+                move === Moves.right ? Moves.up :
+                    move === Moves.down ? Moves.right :
+                        Moves.down
+        }
+
+        throw new Error(`Invalid heading ${heading}`);
     }
 }
