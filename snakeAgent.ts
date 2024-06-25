@@ -15,6 +15,7 @@ export class SnakeAgent {
 
     private readonly model: tf.Sequential;
     private readonly discountFactor: number = 0.9;
+    private readonly learningRate: number = 0.8;
     private readonly movesByIndex: Moves[] = [
         Moves.up,
         Moves.down,
@@ -51,13 +52,13 @@ export class SnakeAgent {
         } = turnData;
 
         const reward: number = !isMoveValid ? -1 :
-            (nextTurnData.health > health) ? 1 : 0.5;
+            (nextTurnData.health > health) ? 1 : 0;
 
         // 1. Prevediamo i valori Q per lo stato successivo
         const maxNextQValue = Math.max(...nextTurnData.targetQValues);
 
         // 2. Calcoliamo il target Q-value per l'azione presa
-        const target = reward + this.discountFactor * maxNextQValue;
+        const target = this.learningRate * (reward + this.discountFactor * maxNextQValue);
 
         // 3. Prevediamo i valori Q per lo stato attuale (riutilizzato da calcolo precedente)
 
@@ -84,7 +85,10 @@ export class SnakeAgent {
     public async trainAll(endingState: GameState): Promise<{
         reward: number;
     }> {
-        await this.play(endingState);
+        await this.play({
+            ...endingState,
+            turn: endingState.turn - 1
+        });
 
         let i = 0;
         let reward: number = 0;
@@ -186,9 +190,16 @@ export class SnakeAgent {
     private mapStateToInput(state: GameState): tf.Tensor {
         const boardInput: number[] = new Array(state.board.width * state.board.height).fill(0);
 
+        function clampInBoard(coord: Coord): Coord {
+            return {
+                x: Math.max(Math.min(coord.x, state.board.width - 1), 0),
+                y: Math.max(Math.min(coord.y, state.board.height - 1), 0)
+            }
+        }
         function getInputIndex(coord: Coord): number {
+            const clamped = clampInBoard(coord);
             // Note: y coord starts from the bottom
-            return (state.board.height - coord.y - 1) * state.board.width + coord.x;
+            return (state.board.height - clamped.y - 1) * state.board.width + clamped.x;
         }
 
         for (const food of state.board.food) {
@@ -224,15 +235,6 @@ export class SnakeAgent {
             }
 
             boardInput[getInputIndex(state.you.head)] = isMyself ? 3 : -3;
-        }
-
-        let stringified: string = "";
-        for (let i = 0; i < boardInput.length; i++) {
-            if ((i % state.board.width) === 0) {
-                stringified += '\n';
-            }
-
-            stringified += `${boardInput[i]}`;
         }
 
         // Reshape allows to set the correct dimension to the tensor
