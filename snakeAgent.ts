@@ -1,6 +1,7 @@
-import * as tf from '@tensorflow/tfjs';
+import * as tf from '@tensorflow/tfjs-node';
 import { Coord, GameState } from './types';
 import { Moves } from './utils';
+import { access, mkdir } from 'fs/promises';
 
 type TurnData = {
     targetQValues: number[];
@@ -28,11 +29,11 @@ export class SnakeAgent {
 
     private prevGameDatas: Map<number, TurnData> = new Map();
 
-    constructor() {
-        this.model = this.createModel();
+    constructor(model?: tf.Sequential) {
+        this.model = model || this.createModel();
     }
 
-    createModel(): tf.Sequential {
+    private createModel(): tf.Sequential {
         const model = tf.sequential();
         model.add(tf.layers.dense({ units: 24, inputShape: [this.inputShape], activation: 'relu' }));
         model.add(tf.layers.dense({ units: 24, activation: 'relu' }));
@@ -54,7 +55,7 @@ export class SnakeAgent {
         } = turnData;
 
         const reward: number = !isMoveValid ? -1 :
-            (nextTurnData.health > health) ? 1 : 0;
+            (nextTurnData.health > health) ? 1 : 0.5;
 
         // 1. Prevediamo i valori Q per lo stato successivo
         const maxNextQValue = Math.max(...nextTurnData.targetQValues);
@@ -72,7 +73,7 @@ export class SnakeAgent {
 
         // 5. Eseguiamo un passo di addestramento per il modello
         const targetTensor = tf.tensor([targetQValues]);
-        await this.model.fit(prevStateTensor, targetTensor, { epochs: 1 });
+        await this.model.fit(prevStateTensor, targetTensor, { epochs: 1, verbose: 0 });
 
         return {
             reward: reward
@@ -310,5 +311,27 @@ export class SnakeAgent {
         }
 
         throw new Error(`Invalid heading ${heading}`);
+    }
+
+    public static async load(path: string): Promise<SnakeAgent> {
+        const model = await tf.loadLayersModel(`file://${path}/model.json`);
+
+        const sequentialModel = tf.sequential();
+        model.layers.forEach(layer => {
+            sequentialModel.add(layer);
+        });
+        sequentialModel.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
+
+        return new SnakeAgent(sequentialModel);
+    }
+
+    public async save(path: string): Promise<void> {
+        try {
+            await access(path);
+        }
+        catch (_) {
+            await mkdir(path, { recursive: true });
+        }
+        await this.model.save(`file://${path}`);
     }
 }
