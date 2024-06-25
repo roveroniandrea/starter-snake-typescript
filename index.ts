@@ -10,6 +10,7 @@
 // To get you started we've included code to prevent your Battlesnake from moving backwards.
 // For more info see docs.battlesnake.com
 
+import { writeFile } from 'fs/promises';
 import runServer from './server';
 import { setIsTrainingInProgress } from './shared';
 import { SnakeAgent } from './snakeAgent';
@@ -66,6 +67,8 @@ async function end(gameState: GameState): Promise<void> {
     Total valid moves: ${timeStats.validMoves} / ${gameState.turn - 1} (${((timeStats.validMoves * 100) / (gameState.turn - 1)).toFixed(2)})%
     Train reward: ${trainResult.reward}
     `);
+
+  await writeFile('result.csv', `${gameState.turn},${trainResult.reward}\n`, { flag: 'a' });
 
   timeStats = {
     gameIndex: timeStats.gameIndex + 1,
