@@ -91,7 +91,7 @@ export class SnakeAgent {
 
         }
         */
-       
+
         // 1. Prevediamo i valori Q per lo stato successivo
         const maxNextQValue = Math.max(...nextTurnData.targetQValues);
 
@@ -156,11 +156,11 @@ export class SnakeAgent {
             throw new Error("Turn already played");
         }
 
-        const validMoves: Record<Moves, boolean> = {
-            up: true,
-            down: true,
-            left: true,
-            right: true
+        const validMovesInWorldSpace: Record<Moves, boolean> = {
+            [Moves.up]: true,
+            [Moves.down]: true,
+            [Moves.left]: true,
+            [Moves.right]: true
         };
 
         // We've included code to prevent your Battlesnake from moving backwards
@@ -169,35 +169,35 @@ export class SnakeAgent {
         let heading: Moves | null = Moves.up;
 
         if (myNeck.x < gameState.you.head.x) {        // Neck is left of head, don't move left
-            validMoves.left = false;
+            validMovesInWorldSpace.left = false;
             heading = Moves.right;
 
         } else if (myNeck.x > gameState.you.head.x) { // Neck is right of head, don't move right
-            validMoves.right = false;
+            validMovesInWorldSpace.right = false;
             heading = Moves.left;
 
         } else if (myNeck.y < gameState.you.head.y) { // Neck is below head, don't move down
-            validMoves.down = false;
+            validMovesInWorldSpace.down = false;
             heading = Moves.up;
 
         } else if (myNeck.y > gameState.you.head.y) { // Neck is above head, don't move up
-            validMoves.up = false;
+            validMovesInWorldSpace.up = false;
             heading = Moves.down;
         }
 
         // Prevent your Battlesnake from moving out of bounds
         if (gameState.you.head.x === 0) {
-            validMoves.left = false;
+            validMovesInWorldSpace.left = false;
         }
         if (gameState.you.head.x === gameState.board.width - 1) {
-            validMoves.right = false;
+            validMovesInWorldSpace.right = false;
         }
         // Note: y coord starts from the bottom
         if (gameState.you.head.y === 0) {
-            validMoves.down = false;
+            validMovesInWorldSpace.down = false;
         }
         if (gameState.you.head.y === gameState.board.height - 1) {
-            validMoves.up = false;
+            validMovesInWorldSpace.up = false;
         }
 
         const newStateTensor: tf.Tensor = this.mapStateToInput(gameState, heading);
@@ -208,7 +208,7 @@ export class SnakeAgent {
         // Chose a random move based on an epsilon value
         // The move is returned as local space, but a check is done in order to always return a valid move if possible
         const chooseRandom: () => Moves = () => {
-            const remainingMoves: Moves[] = this.movesByIndex.filter(move => validMoves[move]);
+            const remainingMoves: Moves[] = this.movesByIndex.filter(move => validMovesInWorldSpace[move]);
 
             if (remainingMoves.length) {
                 return remainingMoves[Math.floor(Math.random() * remainingMoves.length)];
@@ -224,7 +224,7 @@ export class SnakeAgent {
         // The move needs to be converted to world space.
         const worldSpaceMove = this.moveToWorldSpace(localSpaceMove, heading);
         // To check if the move is valid, use the rotated one
-        const isMoveValid = validMoves[worldSpaceMove];
+        const isMoveValid = validMovesInWorldSpace[worldSpaceMove];
 
         const prevTurnData: TurnData | null = this.prevGameDatas.get(gameState.turn - 1) || null;
 
