@@ -39,9 +39,13 @@ export class SnakeAgent {
     }
 
     private createModel(): tf.Sequential {
+        // The number of hidden neurons should be between the size of the input layer and the size of the output layer
+        // The number of hidden neurons should be 2/3 the size of the input layer, plus the size of the output layer
+        // The number of hidden neurons should be less than twice the size of the input layer
+
         const model = tf.sequential();
-        model.add(tf.layers.dense({ units: 24, inputShape: [this.inputShape], activation: 'relu', useBias: true }));
-        model.add(tf.layers.dense({ units: 24, activation: 'relu', useBias: true }));
+        model.add(tf.layers.dense({ units: 45, inputShape: [this.inputShape], activation: 'relu', useBias: true }));
+        model.add(tf.layers.dense({ units: 45, activation: 'relu', useBias: true }));
         // Output layer
         model.add(tf.layers.dense({ units: 4, activation: 'linear' }));
         model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
@@ -199,6 +203,8 @@ export class SnakeAgent {
         if (gameState.you.head.y === gameState.board.height - 1) {
             validMovesInWorldSpace.up = false;
         }
+
+        // TODO: Also check for collision with own body (and maybe other snakes) to see if the move is invalid?
 
         const newStateTensor: tf.Tensor = this.mapStateToInput(gameState, heading);
 

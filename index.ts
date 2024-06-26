@@ -18,7 +18,7 @@ import { GameState, InfoResponse, MoveResponse } from './types';
 
 async function main(): Promise<void> {
 
-  const snakeAgent = await SnakeAgent.load("models/agent-006-local-space", true);
+  const snakeAgent = await SnakeAgent.load("models/agent-006-local-space-v3-increase-neurons", true);
 
   let timeStats: {
     gameIndex: number;
@@ -70,8 +70,8 @@ async function main(): Promise<void> {
       Train reward: ${trainResult.reward}
       `);
 
-      await snakeAgent.save("models/agent-006-local-space");
-      await writeFile('models/agent-006-local-space/scores.csv', `${gameState.turn},${trainResult.reward}\n`, { flag: 'a' });
+      await snakeAgent.save("models/agent-006-local-space-v3-increase-neurons");
+      await writeFile('models/agent-006-local-space-v3-increase-neurons/scores.csv', `${gameState.turn},${trainResult.reward}\n`, { flag: 'a' });
 
     timeStats = {
       gameIndex: timeStats.gameIndex + 1,
