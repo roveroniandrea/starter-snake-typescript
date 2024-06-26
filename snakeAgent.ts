@@ -1,14 +1,17 @@
 import * as tf from '@tensorflow/tfjs-node';
+import { access, mkdir } from 'fs/promises';
 import { Coord, GameState } from './types';
 import { Moves } from './utils';
-import { access, mkdir } from 'fs/promises';
 
 type TurnData = {
     targetQValues: number[];
     /** Rotated board passed as input */
     stateTensor: tf.Tensor;
-    /** Unrotated move (ie the one outputted by the model) */
-    move: Moves;
+    /** Move oriented relative to the snake's space */
+    localSpaceMove: Moves;
+    /** Move oriented relative to the board's space */
+    worldSpaceMove: Moves;
+    heading: Moves;
     isMoveValid: boolean;
     health: number;
     turn: number;
@@ -20,7 +23,7 @@ export class SnakeAgent {
 
     private readonly model: tf.Sequential;
     private readonly discountFactor: number = 0.9;
-    private readonly learningRate: number = 0.8;
+    private readonly learningRate: number = 1;
     private readonly movesByIndex: Moves[] = [
         Moves.up,
         Moves.down,
@@ -28,7 +31,7 @@ export class SnakeAgent {
         Moves.right,
     ];
     private readonly inputShape: number = 11 * 11 + 1;
-    private readonly epsilon: number = 0.05;
+    private readonly epsilon: number = 0.07;
     private prevGameDatas: Map<number, TurnData> = new Map();
 
     constructor(model?: tf.Sequential) {
@@ -51,7 +54,7 @@ export class SnakeAgent {
         const {
             targetQValues: prevTargetQValues,
             stateTensor: prevStateTensor,
-            move: prevMove,
+            localSpaceMove: prevMove,
             isMoveValid,
             health
         } = turnData;
@@ -61,6 +64,34 @@ export class SnakeAgent {
                 // Penalty for choosing the same move more than three times
                 (nextTurnData.equalMovesCount > 2) ? -0.5 : 0;
 
+        /* This is a trial for a custom path to follow. The agent is agent-005-custom-path
+        let reward = -1;
+        if ([0, 1, 2].includes(turnData.turn) && turnData.worldSpaceMove === Moves.up) {
+            reward = 1;
+        }
+        else {
+            if ([3, 4].includes(turnData.turn) && turnData.worldSpaceMove === Moves.right) {
+                reward = 1;
+            }
+            else {
+                if ([5].includes(turnData.turn) && turnData.worldSpaceMove === Moves.down) {
+                    reward = 1;
+                }
+                else {
+                    if ([6].includes(turnData.turn) && turnData.worldSpaceMove === Moves.left) {
+                        reward = 1;
+                    }
+                    else {
+                        if (turnData.turn > 6 && turnData.worldSpaceMove === Moves.left) {
+                            reward = 1;
+                        }
+                    }
+                }
+            }
+
+        }
+        */
+       
         // 1. Prevediamo i valori Q per lo stato successivo
         const maxNextQValue = Math.max(...nextTurnData.targetQValues);
 
@@ -175,7 +206,7 @@ export class SnakeAgent {
         const moveIndex: number = qValues.indexOf(Math.max(...qValues));
 
         // Chose a random move based on an epsilon value
-        // The move is returned as non-rotated, but a check is done in order to always return a valid move if possible
+        // The move is returned as local space, but a check is done in order to always return a valid move if possible
         const chooseRandom: () => Moves = () => {
             const remainingMoves: Moves[] = this.movesByIndex.filter(move => validMoves[move]);
 
@@ -186,39 +217,39 @@ export class SnakeAgent {
             return this.movesByIndex[Math.floor(Math.random() * this.movesByIndex.length)];
         }
 
-        const chosenMove: Moves = Math.random() < this.epsilon ?
+        const localSpaceMove: Moves = Math.random() < this.epsilon ?
             chooseRandom()
             : this.movesByIndex[moveIndex];
 
-        // The move needs to be rotated, but only when returned by this method.
-        // Internally, we need to keep the original move
-        const rotatedMove = this.rotateMove(chosenMove, heading);
+        // The move needs to be converted to world space.
+        const worldSpaceMove = this.moveToWorldSpace(localSpaceMove, heading);
         // To check if the move is valid, use the rotated one
-        const isMoveValid = validMoves[rotatedMove];
+        const isMoveValid = validMoves[worldSpaceMove];
 
         const prevTurnData: TurnData | null = this.prevGameDatas.get(gameState.turn - 1) || null;
 
         this.prevGameDatas.set(gameState.turn, {
             targetQValues: [...qValues],
             stateTensor: newStateTensor,
-            // Keep the unrotated move
-            move: chosenMove,
+            localSpaceMove: localSpaceMove,
+            worldSpaceMove: worldSpaceMove,
+            heading: heading,
             isMoveValid: isMoveValid,
             health: gameState.you.health,
             turn: gameState.turn,
             // Counting how many times the move was the same
-            equalMovesCount: prevTurnData?.move === chosenMove ? prevTurnData.equalMovesCount + 1 : 0
+            equalMovesCount: prevTurnData?.localSpaceMove === localSpaceMove ? prevTurnData.equalMovesCount + 1 : 0
         });
 
 
         return {
-            move: rotatedMove,
+            move: worldSpaceMove,
             wasValid: isMoveValid
         };
     }
 
     private mapStateToInput(state: GameState, heading: Moves): tf.Tensor {
-        const boardInput: number[] = new Array(state.board.width * state.board.height).fill(0);
+        const worldSpaceBoard: number[] = new Array(state.board.width * state.board.height).fill(0);
 
         function clampInBoard(coord: Coord): Coord {
             return {
@@ -233,11 +264,11 @@ export class SnakeAgent {
         }
 
         for (const food of state.board.food) {
-            boardInput[getInputIndex(food)] = 1;
+            worldSpaceBoard[getInputIndex(food)] = 1;
         }
 
         for (const hazard of state.board.hazards) {
-            boardInput[getInputIndex(hazard)] = -1;
+            worldSpaceBoard[getInputIndex(hazard)] = -1;
         }
 
         let myselfFound = false;
@@ -248,34 +279,34 @@ export class SnakeAgent {
             }
 
             for (const body of snake.body) {
-                boardInput[getInputIndex(body)] = isMyself ? 2 : -2;
+                worldSpaceBoard[getInputIndex(body)] = isMyself ? 2 : -2;
             }
 
-            boardInput[getInputIndex(snake.head)] = isMyself ? 3 : -3;
+            worldSpaceBoard[getInputIndex(snake.head)] = isMyself ? 3 : -3;
         }
 
         if (!myselfFound) {
             for (const body of state.you.body) {
-                boardInput[getInputIndex(body)] = 2;
+                worldSpaceBoard[getInputIndex(body)] = 2;
             }
 
-            boardInput[getInputIndex(state.you.head)] = 3;
+            worldSpaceBoard[getInputIndex(state.you.head)] = 3;
         }
 
-        const rotatedBoard: tf.Tensor = this.rotateBoardInput(boardInput, heading, state.board.width, state.board.height);
+        const localSpaceBoard: tf.Tensor = this.boardInputToLocalSpace(worldSpaceBoard, heading, state.board.width, state.board.height);
 
         const healthRatio = Math.max(Math.min(state.you.health / 100, 1), 0);
 
         // Reshape allows to set the correct dimension to the tensor
         const inputTensor = tf.concat([
-            rotatedBoard.reshape([-1, boardInput.length]),
+            localSpaceBoard.reshape([-1, worldSpaceBoard.length]),
             tf.tensor2d([[healthRatio]], [1, 1])
         ], 1);
 
         return inputTensor;
     }
 
-    private rotateBoardInput(boardInput: number[], heading: Moves, width: number, height: number): tf.Tensor {
+    private boardInputToLocalSpace(boardInput: number[], heading: Moves, width: number, height: number): tf.Tensor {
         const tensor = tf.tensor2d(boardInput, [width, height]); // TODO: Need to verify for non-squared boards
 
         if (heading === Moves.up) {
@@ -307,7 +338,7 @@ export class SnakeAgent {
         throw new Error(`Invalid heading ${heading}`);
     }
 
-    private rotateMove(move: Moves, heading: Moves): Moves {
+    private moveToWorldSpace(move: Moves, heading: Moves): Moves {
         if (heading === Moves.up) {
             return move;
         }
