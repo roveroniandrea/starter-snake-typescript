@@ -28,7 +28,7 @@ export class SnakeAgent {
         Moves.right,
     ];
     private readonly inputShape: number = 11 * 11 + 1;
-
+    private readonly epsilon: number = 0.05;
     private prevGameDatas: Map<number, TurnData> = new Map();
 
     constructor(model?: tf.Sequential) {
@@ -174,7 +174,21 @@ export class SnakeAgent {
         const qValues = await (this.model.predict(newStateTensor) as tf.Tensor<tf.Rank>).data();
         const moveIndex: number = qValues.indexOf(Math.max(...qValues));
 
-        const chosenMove: Moves = this.movesByIndex[moveIndex];
+        // Chose a random move based on an epsilon value
+        // The move is returned as non-rotated, but a check is done in order to always return a valid move if possible
+        const chooseRandom: () => Moves = () => {
+            const remainingMoves: Moves[] = this.movesByIndex.filter(move => validMoves[move]);
+
+            if (remainingMoves.length) {
+                return remainingMoves[Math.floor(Math.random() * remainingMoves.length)];
+            }
+
+            return this.movesByIndex[Math.floor(Math.random() * this.movesByIndex.length)];
+        }
+
+        const chosenMove: Moves = Math.random() < this.epsilon ?
+            chooseRandom()
+            : this.movesByIndex[moveIndex];
 
         // The move needs to be rotated, but only when returned by this method.
         // Internally, we need to keep the original move
