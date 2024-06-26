@@ -313,16 +313,25 @@ export class SnakeAgent {
         throw new Error(`Invalid heading ${heading}`);
     }
 
-    public static async load(path: string): Promise<SnakeAgent> {
-        const model = await tf.loadLayersModel(`file://${path}/model.json`);
+    public static async load(path: string, fallbackToNewModel: boolean): Promise<SnakeAgent> {
+        try {
+            const model = await tf.loadLayersModel(`file://${path}/model.json`);
 
-        const sequentialModel = tf.sequential();
-        model.layers.forEach(layer => {
-            sequentialModel.add(layer);
-        });
-        sequentialModel.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
+            const sequentialModel = tf.sequential();
+            model.layers.forEach(layer => {
+                sequentialModel.add(layer);
+            });
+            sequentialModel.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
 
-        return new SnakeAgent(sequentialModel);
+            return new SnakeAgent(sequentialModel);
+        }
+        catch (ex) {
+            if (fallbackToNewModel) {
+                return new SnakeAgent();
+            }
+
+            throw new Error(`Error  when loading model ${path}: ${(ex as any)?.message || ""}`);
+        }
     }
 
     public async save(path: string): Promise<void> {

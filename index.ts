@@ -18,7 +18,7 @@ import { GameState, InfoResponse, MoveResponse } from './types';
 
 async function main(): Promise<void> {
 
-  const snakeAgent = await SnakeAgent.load("models/agent-001");
+  const snakeAgent = await SnakeAgent.load("models/agent-002", true);
 
   let timeStats: {
     gameIndex: number;
@@ -71,7 +71,7 @@ async function main(): Promise<void> {
       `);
 
     await writeFile('result.csv', `${gameState.turn},${trainResult.reward}\n`, { flag: 'a' });
-    await snakeAgent.save("models/agent-001");
+    await snakeAgent.save("models/agent-002");
 
     timeStats = {
       gameIndex: timeStats.gameIndex + 1,
