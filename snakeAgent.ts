@@ -12,6 +12,8 @@ type TurnData = {
     isMoveValid: boolean;
     health: number;
     turn: number;
+    /** Total number of equal moves in the previous turns (0-based) */
+    equalMovesCount: number;
 };
 
 export class SnakeAgent {
@@ -25,7 +27,7 @@ export class SnakeAgent {
         Moves.left,
         Moves.right,
     ];
-    private readonly inputShape: number = 11 * 11;
+    private readonly inputShape: number = 11 * 11 + 1;
 
     private prevGameDatas: Map<number, TurnData> = new Map();
 
@@ -35,8 +37,8 @@ export class SnakeAgent {
 
     private createModel(): tf.Sequential {
         const model = tf.sequential();
-        model.add(tf.layers.dense({ units: 24, inputShape: [this.inputShape], activation: 'relu' }));
-        model.add(tf.layers.dense({ units: 24, activation: 'relu' }));
+        model.add(tf.layers.dense({ units: 24, inputShape: [this.inputShape], activation: 'relu', useBias: true }));
+        model.add(tf.layers.dense({ units: 24, activation: 'relu', useBias: true }));
         // Output layer
         model.add(tf.layers.dense({ units: 4, activation: 'linear' }));
         model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
@@ -55,7 +57,9 @@ export class SnakeAgent {
         } = turnData;
 
         const reward: number = !isMoveValid ? -1 :
-            (nextTurnData.health > health) ? 1 : 0.5;
+            (nextTurnData.health > health) ? 1 :
+                // Penalty for choosing the same move more than three times
+                (nextTurnData.equalMovesCount > 2) ? -0.5 : 0;
 
         // 1. Prevediamo i valori Q per lo stato successivo
         const maxNextQValue = Math.max(...nextTurnData.targetQValues);
@@ -178,6 +182,8 @@ export class SnakeAgent {
         // To check if the move is valid, use the rotated one
         const isMoveValid = validMoves[rotatedMove];
 
+        const prevTurnData: TurnData | null = this.prevGameDatas.get(gameState.turn - 1) || null;
+
         this.prevGameDatas.set(gameState.turn, {
             targetQValues: [...qValues],
             stateTensor: newStateTensor,
@@ -185,7 +191,9 @@ export class SnakeAgent {
             move: chosenMove,
             isMoveValid: isMoveValid,
             health: gameState.you.health,
-            turn: gameState.turn
+            turn: gameState.turn,
+            // Counting how many times the move was the same
+            equalMovesCount: prevTurnData?.move === chosenMove ? prevTurnData.equalMovesCount + 1 : 0
         });
 
 
@@ -233,22 +241,23 @@ export class SnakeAgent {
         }
 
         if (!myselfFound) {
-            const isMyself: boolean = state.you.id === state.you.id;
-            if (isMyself) {
-                myselfFound = true;
-            }
-
             for (const body of state.you.body) {
-                boardInput[getInputIndex(body)] = isMyself ? 2 : -2;
+                boardInput[getInputIndex(body)] = 2;
             }
 
-            boardInput[getInputIndex(state.you.head)] = isMyself ? 3 : -3;
+            boardInput[getInputIndex(state.you.head)] = 3;
         }
 
         const rotatedBoard: tf.Tensor = this.rotateBoardInput(boardInput, heading, state.board.width, state.board.height);
 
+        const healthRatio = Math.max(Math.min(state.you.health / 100, 1), 0);
+
         // Reshape allows to set the correct dimension to the tensor
-        const inputTensor = rotatedBoard.reshape([-1, this.inputShape]);
+        const inputTensor = tf.concat([
+            rotatedBoard.reshape([-1, boardInput.length]),
+            tf.tensor2d([[healthRatio]], [1, 1])
+        ], 1);
+
         return inputTensor;
     }
 
