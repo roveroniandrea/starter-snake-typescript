@@ -23,15 +23,15 @@ export class SnakeAgent {
 
     private readonly model: tf.Sequential;
     private readonly discountFactor: number = 0.9;
-    private readonly learningRate: number = 1;
+    private readonly learningRate: number = 0.1;
     private readonly movesByIndex: Moves[] = [
         Moves.up,
         Moves.down,
         Moves.left,
         Moves.right,
     ];
-    private readonly inputShape: number = 11 * 11 + 1;
-    private readonly epsilon: number = 0.07;
+    private readonly inputShape: number = 6 * 6 + 1;
+    private readonly epsilon: number = 0.01;
     private prevGameDatas: Map<number, TurnData> = new Map();
 
     constructor(model?: tf.Sequential) {
@@ -44,8 +44,8 @@ export class SnakeAgent {
         // The number of hidden neurons should be less than twice the size of the input layer
 
         const model = tf.sequential();
-        model.add(tf.layers.dense({ units: 45, inputShape: [this.inputShape], activation: 'relu', useBias: true }));
-        model.add(tf.layers.dense({ units: 45, activation: 'relu', useBias: true }));
+        model.add(tf.layers.dense({ units: 14, inputShape: [this.inputShape], activation: 'relu', useBias: true }));
+        model.add(tf.layers.dense({ units: 14, activation: 'relu', useBias: true }));
         // Output layer
         model.add(tf.layers.dense({ units: 4, activation: 'linear' }));
         model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
@@ -63,10 +63,10 @@ export class SnakeAgent {
             health
         } = turnData;
 
-        const reward: number = !isMoveValid ? -1 :
+        const reward: number = !isMoveValid ? -2 :
             (nextTurnData.health > health) ? 1 :
-                // Penalty for choosing the same move more than three times
-                (nextTurnData.equalMovesCount > 2) ? -0.5 : 0;
+                // Penalty for choosing the same move more than three times TODO: disabled
+                (nextTurnData.equalMovesCount > 2) ? -0.5 : 0.1;
 
         /* This is a trial for a custom path to follow. The agent is agent-005-custom-path
         let reward = -1;
@@ -97,18 +97,19 @@ export class SnakeAgent {
         */
 
         // 1. Prevediamo i valori Q per lo stato successivo
+        // 2. Calcoliamo il target Q-value per l'azione presa
+        // 3. Prevediamo i valori Q per lo stato attuale (riutilizzato da calcolo precedente)
+        // 4. Sostituiamo il valore Q corrispondente all'azione presa con il target calcolato
+
+        const actionIndex: number = parseInt(Object.keys(this.movesByIndex).find(i => this.movesByIndex[parseInt(i)] === prevMove) || '');
+
+        // Bellman equation
         const maxNextQValue = Math.max(...nextTurnData.targetQValues);
 
-        // 2. Calcoliamo il target Q-value per l'azione presa
-        const target = this.learningRate * (reward + this.discountFactor * maxNextQValue);
-
-        // 3. Prevediamo i valori Q per lo stato attuale (riutilizzato da calcolo precedente)
-
-        // 4. Sostituiamo il valore Q corrispondente all'azione presa con il target calcolato
-        const action: number = parseInt(Object.keys(this.movesByIndex).find(i => this.movesByIndex[parseInt(i)] === prevMove) || '');
+        const target = prevTargetQValues[actionIndex] + this.learningRate * (reward + this.discountFactor * maxNextQValue - prevTargetQValues[actionIndex]);
 
         const targetQValues: number[] = prevTargetQValues.slice();
-        targetQValues[action] = target;
+        targetQValues[actionIndex] = target;
 
         // 5. Eseguiamo un passo di addestramento per il modello
         const targetTensor = tf.tensor([targetQValues]);
