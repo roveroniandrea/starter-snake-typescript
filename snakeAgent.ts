@@ -2,6 +2,7 @@ import * as tf from '@tensorflow/tfjs-node';
 import { access, mkdir } from 'fs/promises';
 import { Coord, GameState } from './types';
 import { Moves } from './utils';
+import { boardInputToLocalSpace, isCollisionWithOthersLost, isCollisionWithSelf, isOutsideBounds, isStarved, moveToWorldSpace } from './utils/gameUtils';
 
 type TurnData = {
     targetQValues: number[];
@@ -11,19 +12,16 @@ type TurnData = {
     localSpaceMove: Moves;
     /** Move oriented relative to the board's space */
     worldSpaceMove: Moves;
-    heading: Moves;
-    isMoveValid: boolean;
-    health: number;
-    turn: number;
     /** Total number of equal moves in the previous turns (0-based) */
     equalMovesCount: number;
+    gameState: GameState;
 };
 
 export class SnakeAgent {
 
     private readonly model: tf.Sequential;
-    private readonly discountFactor: number = 0.9;
-    private readonly learningRate: number = 0.1;
+    private readonly discountFactor: number = 0.8;
+    private readonly learningRate: number = 0.2;
     private readonly movesByIndex: Moves[] = [
         Moves.up,
         Moves.down,
@@ -58,15 +56,52 @@ export class SnakeAgent {
         const {
             targetQValues: prevTargetQValues,
             stateTensor: prevStateTensor,
-            localSpaceMove: prevMove,
-            isMoveValid,
-            health
+            localSpaceMove: prevLocalSpaceMove,
+            gameState: prevGameState
         } = turnData;
 
-        const reward: number = !isMoveValid ? -2 :
-            (nextTurnData.health > health) ? 1 :
-                // Penalty for choosing the same move more than three times TODO: disabled
-                (nextTurnData.equalMovesCount > 2) ? -0.5 : 0.1;
+        const {
+            gameState: nextGameState
+        } = nextTurnData;
+
+        const reward: number = (() => {
+            if (isOutsideBounds(nextGameState.board, nextGameState.you)) {
+                // Means that I'm outside the game board
+                return -1;
+            }
+            if (isStarved(nextGameState.you)) {
+                // Means I should have eaten more
+                return -1;
+            }
+            if (isCollisionWithSelf(nextGameState.you)) {
+                // Means that I've collided with myself
+                return -1;
+            }
+            if (isCollisionWithOthersLost(nextGameState.you, nextGameState.board.snakes)) {
+                // Means that I've collided with someone else and, in case of head-to-head collision, I've lost
+                return -1;
+            }
+            if (nextTurnData.equalMovesCount > 2 && [Moves.right, Moves.left].includes(prevLocalSpaceMove)) {
+                // Penalty for turning in the same direction more than three times
+                return -0.5;
+            }
+            // TODO: Is on hazard
+
+            if (!nextGameState.board.snakes.some(sn => sn.id === nextGameState.you.id)) {
+                // Means that I've been eliminated
+                // This is a generic "lose" check, more specific ones are before
+                return -1;
+            }
+
+            if (nextGameState.you.health >= prevGameState.you.health) {
+                // I've eaten a fruit (including when already at full health)
+                return 1;
+            }
+
+            // Otherwise, a turn is passed with nothing special
+            return 0.1;
+        })();
+
 
         /* This is a trial for a custom path to follow. The agent is agent-005-custom-path
         let reward = -1;
@@ -92,7 +127,7 @@ export class SnakeAgent {
                     }
                 }
             }
-
+        
         }
         */
 
@@ -101,7 +136,7 @@ export class SnakeAgent {
         // 3. Prevediamo i valori Q per lo stato attuale (riutilizzato da calcolo precedente)
         // 4. Sostituiamo il valore Q corrispondente all'azione presa con il target calcolato
 
-        const actionIndex: number = parseInt(Object.keys(this.movesByIndex).find(i => this.movesByIndex[parseInt(i)] === prevMove) || '');
+        const actionIndex: number = parseInt(Object.keys(this.movesByIndex).find(i => this.movesByIndex[parseInt(i)] === prevLocalSpaceMove) || '');
 
         // Bellman equation
         const maxNextQValue = Math.max(...nextTurnData.targetQValues);
@@ -229,7 +264,7 @@ export class SnakeAgent {
             : this.movesByIndex[moveIndex];
 
         // The move needs to be converted to world space.
-        const worldSpaceMove = this.moveToWorldSpace(localSpaceMove, heading);
+        const worldSpaceMove = moveToWorldSpace(localSpaceMove, heading);
         // To check if the move is valid, use the rotated one
         const isMoveValid = validMovesInWorldSpace[worldSpaceMove];
 
@@ -240,12 +275,9 @@ export class SnakeAgent {
             stateTensor: newStateTensor,
             localSpaceMove: localSpaceMove,
             worldSpaceMove: worldSpaceMove,
-            heading: heading,
-            isMoveValid: isMoveValid,
-            health: gameState.you.health,
-            turn: gameState.turn,
             // Counting how many times the move was the same
-            equalMovesCount: prevTurnData?.localSpaceMove === localSpaceMove ? prevTurnData.equalMovesCount + 1 : 0
+            equalMovesCount: prevTurnData?.localSpaceMove === localSpaceMove ? prevTurnData.equalMovesCount + 1 : 0,
+            gameState: gameState
         });
 
 
@@ -300,7 +332,7 @@ export class SnakeAgent {
             worldSpaceBoard[getInputIndex(state.you.head)] = 3;
         }
 
-        const localSpaceBoard: tf.Tensor = this.boardInputToLocalSpace(worldSpaceBoard, heading, state.board.width, state.board.height);
+        const localSpaceBoard: tf.Tensor = boardInputToLocalSpace(worldSpaceBoard, heading, state.board.width, state.board.height);
 
         const healthRatio = Math.max(Math.min(state.you.health / 100, 1), 0);
 
@@ -311,67 +343,6 @@ export class SnakeAgent {
         ], 1);
 
         return inputTensor;
-    }
-
-    private boardInputToLocalSpace(boardInput: number[], heading: Moves, width: number, height: number): tf.Tensor {
-        const tensor = tf.tensor2d(boardInput, [width, height]); // TODO: Need to verify for non-squared boards
-
-        if (heading === Moves.up) {
-            return tensor;
-        }
-
-        if (heading === Moves.right) {
-            // Per ruotare una matrice di 90 gradi a destra (in senso orario),
-            // puoi trasporre la matrice e poi invertire l'ordine delle righe
-            const transposed = tensor.transpose();
-            const rotated = transposed.reverse(0);
-            return rotated;
-        }
-
-        if (heading === Moves.down) {
-            // Per ruotare una matrice di 180 gradi, puoi invertire sia l'ordine delle righe che delle colonne
-            const rotated = tensor.reverse(0).reverse(1);
-            return rotated;
-        }
-
-        if (heading === Moves.left) {
-            // Per ruotare una matrice di 270 gradi a destra (in senso orario),
-            // puoi trasporre la matrice e poi invertire l'ordine delle colonne
-            const transposed = tensor.transpose();
-            const rotated = transposed.reverse(0);
-            return rotated;
-        }
-
-        throw new Error(`Invalid heading ${heading}`);
-    }
-
-    private moveToWorldSpace(move: Moves, heading: Moves): Moves {
-        if (heading === Moves.up) {
-            return move;
-        }
-
-        if (heading === Moves.right) {
-            return move === Moves.up ? Moves.right :
-                move === Moves.right ? Moves.down :
-                    move === Moves.down ? Moves.left :
-                        Moves.up
-        }
-
-        if (heading === Moves.down) {
-            return move === Moves.up ? Moves.down :
-                move === Moves.right ? Moves.left :
-                    move === Moves.down ? Moves.up :
-                        Moves.right
-        }
-
-        if (heading === Moves.left) {
-            return move === Moves.up ? Moves.left :
-                move === Moves.right ? Moves.up :
-                    move === Moves.down ? Moves.right :
-                        Moves.down
-        }
-
-        throw new Error(`Invalid heading ${heading}`);
     }
 
     public static async load(path: string, fallbackToNewModel: boolean): Promise<SnakeAgent> {
