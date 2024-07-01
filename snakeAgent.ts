@@ -2,7 +2,7 @@ import * as tf from '@tensorflow/tfjs-node';
 import { access, mkdir } from 'fs/promises';
 import { Coord, GameState } from './types';
 import { Moves } from './utils';
-import { boardInputToLocalSpace, isCollisionWithOthersLost, isCollisionWithSelf, isOutsideBounds, isStarved, moveToWorldSpace } from './utils/gameUtils';
+import { boardInputToLocalSpace, isCollisionWithOthersLost, isCollisionWithSelf, isOutsideBounds, isStarved, moveToWorldSpace, printBoard } from './utils/gameUtils';
 
 type TurnData = {
     targetQValues: number[];
@@ -28,7 +28,7 @@ export class SnakeAgent {
         Moves.left,
         Moves.right,
     ];
-    private readonly inputShape: number = 6 * 6 + 1;
+    private readonly inputShape: number = (6 + 2) * (6 + 2) + 1;
     private readonly epsilon: number = 0.01;
     private prevGameDatas: Map<number, TurnData> = new Map();
 
@@ -288,26 +288,31 @@ export class SnakeAgent {
     }
 
     private mapStateToInput(state: GameState, heading: Moves): tf.Tensor {
-        const worldSpaceBoard: number[] = new Array(state.board.width * state.board.height).fill(0);
+        const worldSpaceBoard: number[][] = new Array(state.board.height + 2)
+            .fill(null)
+            .map(() => new Array(state.board.width + 2).fill(0));
 
-        function clampInBoard(coord: Coord): Coord {
-            return {
-                x: Math.max(Math.min(coord.x, state.board.width - 1), 0),
-                y: Math.max(Math.min(coord.y, state.board.height - 1), 0)
-            }
+        // The border of the board shoul be initialized to -1
+        for (let x = -1; x < worldSpaceBoard[0].length - 1; x++) {
+            setBoardValue({ x: x, y: -1 }, -1);
+            setBoardValue({ x: x, y: state.board.height }, -1);
         }
-        function getInputIndex(coord: Coord): number {
-            const clamped = clampInBoard(coord);
-            // Note: y coord starts from the bottom
-            return (state.board.height - clamped.y - 1) * state.board.width + clamped.x;
+        for (let y = -1; y < worldSpaceBoard.length - 1; y++) {
+            setBoardValue({ x: -1, y: y }, -1);
+            setBoardValue({ x: state.board.width, y: y }, -1);
+        }
+
+
+        function setBoardValue(coord: Coord, value: number): void {
+            worldSpaceBoard[coord.y + 1][coord.x + 1] = value;
         }
 
         for (const food of state.board.food) {
-            worldSpaceBoard[getInputIndex(food)] = 1;
+            setBoardValue(food, 1);
         }
 
         for (const hazard of state.board.hazards) {
-            worldSpaceBoard[getInputIndex(hazard)] = -1;
+            setBoardValue(hazard, -1);
         }
 
         let myselfFound = false;
@@ -318,27 +323,29 @@ export class SnakeAgent {
             }
 
             for (const body of snake.body) {
-                worldSpaceBoard[getInputIndex(body)] = isMyself ? 2 : -2;
+                setBoardValue(body, isMyself ? 2 : -2);
             }
 
-            worldSpaceBoard[getInputIndex(snake.head)] = isMyself ? 3 : -3;
+            setBoardValue(snake.head, isMyself ? 3 : -3)
         }
 
         if (!myselfFound) {
             for (const body of state.you.body) {
-                worldSpaceBoard[getInputIndex(body)] = 2;
+                setBoardValue(body, 2);
             }
 
-            worldSpaceBoard[getInputIndex(state.you.head)] = 3;
+            setBoardValue(state.you.head, 3);
         }
 
-        const localSpaceBoard: tf.Tensor = boardInputToLocalSpace(worldSpaceBoard, heading, state.board.width, state.board.height);
+        const localSpaceBoard: tf.Tensor = boardInputToLocalSpace(tf.tensor2d(worldSpaceBoard, [state.board.width + 2, state.board.height + 2]), heading);
 
+        // console.log(JSON.stringify(worldSpaceBoard));
+        // printBoard(localSpaceBoard);
         const healthRatio = Math.max(Math.min(state.you.health / 100, 1), 0);
 
         // Reshape allows to set the correct dimension to the tensor
         const inputTensor = tf.concat([
-            localSpaceBoard.reshape([-1, worldSpaceBoard.length]),
+            localSpaceBoard.reshape([-1, localSpaceBoard.size]),
             tf.tensor2d([[healthRatio]], [1, 1])
         ], 1);
 

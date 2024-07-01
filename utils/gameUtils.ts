@@ -1,6 +1,6 @@
+import { Tensor } from '@tensorflow/tfjs-node';
 import { Battlesnake, Board, Coord } from '../types';
 import { Moves } from '../utils';
-import { Tensor, tensor2d } from '@tensorflow/tfjs-node';
 
 export function moveToWorldSpace(move: Moves, heading: Moves): Moves {
     if (heading === Moves.up) {
@@ -31,31 +31,29 @@ export function moveToWorldSpace(move: Moves, heading: Moves): Moves {
     throw new Error(`Invalid heading ${heading}`);
 }
 
-export function boardInputToLocalSpace(boardInput: number[], heading: Moves, width: number, height: number): Tensor {
-    const tensor = tensor2d(boardInput, [width, height]); // TODO: Need to verify for non-squared boards
-
+export function boardInputToLocalSpace(boardInput: Tensor, heading: Moves): Tensor {
     if (heading === Moves.up) {
-        return tensor;
+        return boardInput;
     }
 
     if (heading === Moves.right) {
         // Per ruotare una matrice di 90 gradi a destra (in senso orario),
         // puoi trasporre la matrice e poi invertire l'ordine delle righe
-        const transposed = tensor.transpose();
+        const transposed = boardInput.transpose();
         const rotated = transposed.reverse(0);
         return rotated;
     }
 
     if (heading === Moves.down) {
         // Per ruotare una matrice di 180 gradi, puoi invertire sia l'ordine delle righe che delle colonne
-        const rotated = tensor.reverse(0).reverse(1);
+        const rotated = boardInput.reverse(0).reverse(1);
         return rotated;
     }
 
     if (heading === Moves.left) {
         // Per ruotare una matrice di 270 gradi a destra (in senso orario),
         // puoi trasporre la matrice e poi invertire l'ordine delle colonne
-        const transposed = tensor.transpose();
+        const transposed = boardInput.transpose();
         const rotated = transposed.reverse(0);
         return rotated;
     }
@@ -95,4 +93,8 @@ export function isCollisionWithOthersLost(snake: Battlesnake, others: Battlesnak
                 || other.length >= snake.length
             )
     }))
+}
+
+export function printBoard(tensor: Tensor): void {
+    tensor.print();
 }
