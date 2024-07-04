@@ -1,6 +1,6 @@
 import express, { Request, Response, NextFunction } from "express"
 import { GameState, InfoResponse, MoveResponse } from './types';
-import { getIsTrainingInProgress } from './shared';
+import { getIsTrainingInProgress } from './utils/shared';
 
 export interface BattlesnakeHandlers {
   info: () => Promise<InfoResponse> | InfoResponse;

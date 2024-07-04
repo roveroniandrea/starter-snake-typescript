@@ -12,13 +12,13 @@
 
 import { writeFile } from 'fs/promises';
 import runServer from './server';
-import { setIsTrainingInProgress } from './shared';
+import { setIsTrainingInProgress } from './utils/shared';
 import { SnakeAgent } from './snakeAgent';
 import { GameState, InfoResponse, MoveResponse } from './types';
 
 async function main(): Promise<void> {
 
-  const snakeAgent = await SnakeAgent.load("models/agent-011-padding", true);
+  const snakeAgent = await SnakeAgent.load("models/agent-012-gpt-help", true);
 
   let timeStats: {
     gameIndex: number;
@@ -70,8 +70,8 @@ async function main(): Promise<void> {
       Train reward: ${trainResult.reward}
       `);
 
-      await snakeAgent.save("models/agent-011-padding");
-      await writeFile('models/agent-011-padding/scores.csv', `${gameState.turn},${trainResult.reward}\n`, { flag: 'a' });
+      await snakeAgent.save("models/agent-012-gpt-help");
+      await writeFile('models/agent-012-gpt-help/scores.csv', `${gameState.turn},${trainResult.reward}\n`, { flag: 'a' });
 
     timeStats = {
       gameIndex: timeStats.gameIndex + 1,

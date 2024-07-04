@@ -1,6 +1,6 @@
 import { Tensor } from '@tensorflow/tfjs-node';
 import { Battlesnake, Board, Coord } from '../types';
-import { Moves } from '../utils';
+import { Moves } from './utils';
 
 export function moveToWorldSpace(move: Moves, heading: Moves): Moves {
     if (heading === Moves.up) {

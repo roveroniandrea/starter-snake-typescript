@@ -1,7 +1,7 @@
 import * as tf from '@tensorflow/tfjs-node';
 import { access, mkdir } from 'fs/promises';
 import { Coord, GameState } from './types';
-import { Moves } from './utils';
+import { Moves } from './utils/utils';
 import { boardInputToLocalSpace, isCollisionWithOthersLost, isCollisionWithSelf, isOutsideBounds, isStarved, moveToWorldSpace, printBoard } from './utils/gameUtils';
 
 type TurnData = {
@@ -20,8 +20,9 @@ type TurnData = {
 export class SnakeAgent {
 
     private readonly model: tf.Sequential;
+    /** Also know as gamma */
     private readonly discountFactor: number = 0.8;
-    private readonly learningRate: number = 0.2;
+    private readonly learningRate: number = 0.4;
     private readonly movesByIndex: Moves[] = [
         Moves.up,
         Moves.down,
@@ -42,8 +43,8 @@ export class SnakeAgent {
         // The number of hidden neurons should be less than twice the size of the input layer
 
         const model = tf.sequential();
-        model.add(tf.layers.dense({ units: 14, inputShape: [this.inputShape], activation: 'relu', useBias: true }));
-        model.add(tf.layers.dense({ units: 14, activation: 'relu', useBias: true }));
+        model.add(tf.layers.dense({ units: 24, inputShape: [this.inputShape], activation: 'relu', useBias: true }));
+        model.add(tf.layers.dense({ units: 24, activation: 'relu', useBias: true }));
         // Output layer
         model.add(tf.layers.dense({ units: 4, activation: 'linear' }));
         model.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
@@ -67,39 +68,39 @@ export class SnakeAgent {
         const reward: number = (() => {
             if (isOutsideBounds(nextGameState.board, nextGameState.you)) {
                 // Means that I'm outside the game board
-                return -1;
+                return -10;
             }
             if (isStarved(nextGameState.you)) {
                 // Means I should have eaten more
-                return -1;
+                return -10;
             }
             if (isCollisionWithSelf(nextGameState.you)) {
                 // Means that I've collided with myself
-                return -1;
+                return -10;
             }
             if (isCollisionWithOthersLost(nextGameState.you, nextGameState.board.snakes)) {
                 // Means that I've collided with someone else and, in case of head-to-head collision, I've lost
-                return -1;
+                return -10;
             }
             if (nextTurnData.equalMovesCount > 2 && [Moves.right, Moves.left].includes(prevLocalSpaceMove)) {
                 // Penalty for turning in the same direction more than three times
-                return -0.5;
+                return -4;
             }
             // TODO: Is on hazard
 
             if (!nextGameState.board.snakes.some(sn => sn.id === nextGameState.you.id)) {
                 // Means that I've been eliminated
                 // This is a generic "lose" check, more specific ones are before
-                return -1;
+                return -10;
             }
 
             if (nextGameState.you.health >= prevGameState.you.health) {
                 // I've eaten a fruit (including when already at full health)
-                return 1;
+                return 3;
             }
 
             // Otherwise, a turn is passed with nothing special
-            return 0.1;
+            return 0.5;
         })();
 
 
