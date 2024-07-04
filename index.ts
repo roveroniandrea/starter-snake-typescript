@@ -63,15 +63,15 @@ async function main(): Promise<void> {
     console.log(`
       GAME #${timeStats.gameIndex} ENDED:
       Turns ${gameState.turn}
-      Avg training time during game: ${timeStats.trainingTimeMs / gameState.turn}ms
-      Avg playing time: ${timeStats.playingTimeMs / gameState.turn}ms
-      Final training time: ${finalTrainingTime}ms
+      Avg training time during game: ${(timeStats.trainingTimeMs / gameState.turn).toFixed(2)}ms
+      Avg playing time: ${(timeStats.playingTimeMs / gameState.turn).toFixed(2)}ms
+      Final training time: ${finalTrainingTime}ms (avg ${(finalTrainingTime / gameState.turn).toFixed(2)} per turn)
       Total valid moves: ${timeStats.validMoves} / ${gameState.turn - 1} (${((timeStats.validMoves * 100) / (gameState.turn - 1)).toFixed(2)})%
       Train reward: ${trainResult.reward}
       `);
 
-      await snakeAgent.save("models/agent-012-gpt-help");
-      await writeFile('models/agent-012-gpt-help/scores.csv', `${gameState.turn},${trainResult.reward}\n`, { flag: 'a' });
+    await snakeAgent.save("models/agent-012-gpt-help");
+    await writeFile('models/agent-012-gpt-help/scores.csv', `${gameState.turn},${trainResult.reward}\n`, { flag: 'a' });
 
     timeStats = {
       gameIndex: timeStats.gameIndex + 1,
