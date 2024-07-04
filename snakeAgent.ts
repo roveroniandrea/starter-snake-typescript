@@ -51,9 +51,7 @@ export class SnakeAgent {
         return model;
     }
 
-    public async train(turnData: TurnData, nextTurnData: TurnData): Promise<{
-        reward: number;
-    }> {
+    private calculateXandYtensorsFromExperience(turnData: TurnData, nextTurnData: TurnData): { state: tf.Tensor; targetQValues: tf.Tensor; reward: number } {
         const {
             targetQValues: prevTargetQValues,
             stateTensor: prevStateTensor,
@@ -147,12 +145,10 @@ export class SnakeAgent {
         const targetQValues: number[] = prevTargetQValues.slice();
         targetQValues[actionIndex] = target;
 
-        // 5. Eseguiamo un passo di addestramento per il modello
-        const targetTensor = tf.tensor([targetQValues]);
-        await this.model.fit(prevStateTensor, targetTensor, { epochs: 1, verbose: 0 });
-
         return {
-            reward: reward
+            reward: reward,
+            state: prevStateTensor,
+            targetQValues: tf.tensor([targetQValues])
         }
     }
 
@@ -171,18 +167,36 @@ export class SnakeAgent {
 
         let i = 0;
         let reward: number = 0;
+        const xValues: tf.Tensor[] = [];
+        const yValues: tf.Tensor[] = [];
+
         while (this.prevGameDatas.has(i) && this.prevGameDatas.has(i + 1)) {
             const currentTurn = this.prevGameDatas.get(i) as TurnData;
             const nextTurn = this.prevGameDatas.get(i + 1) as TurnData;
 
-            const trainResult = await this.train(currentTurn, nextTurn);
+            const resultingTensors = this.calculateXandYtensorsFromExperience(currentTurn, nextTurn);
 
-            reward += trainResult.reward;
+            reward += resultingTensors.reward;
+            xValues.push(resultingTensors.state);
+            yValues.push(resultingTensors.targetQValues);
 
             i++;
         }
 
         this.prevGameDatas.clear();
+
+        const xValuesTensor = tf.concat(xValues, 0);
+        const yValuesTensor = tf.concat(yValues, 0);
+
+        for (let i = 0; i < xValues.length; i++) {
+            xValues[i].dispose();
+            yValues[i].dispose();
+        }
+
+        await this.model.fit(xValuesTensor, yValuesTensor, { epochs: 1, verbose: 0, batchSize: xValues.length });
+
+        xValuesTensor.dispose();
+        yValuesTensor.dispose();
 
         return {
             reward: reward
